@@ -1,29 +1,44 @@
-import random
-import socket
+class RoutingObject(object):
+    def __init__(self, number, content):
+        if number < 0 or number > 255:
+            raise ValueError("Routing object number must be between 0 and 255")
 
-class Client(object):
-    def __init__(self, host_name, port):
-        self.host_name = host_name
-        self.port = port
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.number = number
+        self.content = content
 
-    def connect(self):
-        self.socket.connect((self.host_name, self.port))
+# TODO Need to fix constructors here
+class PayloadObject(object):
+    def __init__(self, type_dotted, content):
+        if not _validate_dotted_form(type_dotted):
+            raise ValueError("Dotted payload type must contain four elements between 0 and 255")
 
-    def close(self):
-        self.socket.close()
+        self.type_dotted = type_dotted
+        self.type_num = None
+        self.content = content
 
-    def setEntityFromFile(key_file_name, result_handler):
-        with open(key_file_name) as f:
-            f.read(1) # Strip leading byte
-            key = f.read()
-        setEntity(key, result_handler)
+    def __init__(self, type_num, content):
+        if not _validate_type_num():
+            raise ValueError("Payload type number must contain 1 or 2 digits")
 
-    def setEntity(key, result_handler):
-        seq_num = Frame.generateSequenceNumber()
-        frame = Frame("sete", seq_num)
-        po = PayloadObject((1, 0, 1, 2), key)
-        frame.writeToSocket(self.socket) #TODO add logic for threading and handler
+        self.type_dotted = None
+        self.type_num = type_num
+        self.content = content
+
+    def __init__(self, type_dotted, type_num, content):
+        if not _validate_dotted_form(type_dotted):
+            raise ValueError("Dotted payload type must contain four elements between 0 and 255")
+        if not _validate_type_num(type_num):
+            raise ValueError("Payload type number must contain 1 or 2 digits")
+
+        self.type_dotted = type_dotted
+        self.type_num = type_num
+        self.content = content
+
+    def _validate_type_num(type_num):
+        return 0 < type_num < 100
+
+    def _validate_dotted_form(type_dotted):
+        return len(type_dotted) == 4 and all([0 < x < 255 for x in type_dotted])
 
 class Frame(object):
     def __init__(self, command, seq_no):
@@ -71,7 +86,7 @@ class Frame(object):
             body += po.content + "\n"
 
         body += "\n"
-        socket.sendall(body)
+        sock.sendall(body)
 
     @classmethod
     def readFromSocket(cls, socket):
@@ -143,45 +158,3 @@ class Frame(object):
     @staticmethod
     def generateSequenceNumber():
         return random.randint(0, 1e10) #TODO: Okay to exceed INT_MAX?
-
-class RoutingObject(object):
-    def __init__(self, number, content):
-        if number < 0 or number > 255:
-            raise ValueError("Routing object number must be between 0 and 255")
-
-        self.number = number
-        self.content = content
-
-# TODO Need to fix constructors here
-class PayloadObject(object):
-    def __init__(self, type_dotted, content):
-        if not _validate_dotted_form(type_dotted):
-            raise ValueError("Dotted payload type must contain four elements between 0 and 255")
-
-        self.type_dotted = type_dotted
-        self.type_num = None
-        self.content = content
-
-    def __init__(self, type_num, content):
-        if not _validate_type_num():
-            raise ValueError("Payload type number must contain 1 or 2 digits")
-
-        self.type_dotted = None
-        self.type_num = type_num
-        self.content = content
-
-    def __init__(self, type_dotted, type_num, content):
-        if not _validate_dotted_form(type_dotted):
-            raise ValueError("Dotted payload type must contain four elements between 0 and 255")
-        if not _validate_type_num(type_num):
-            raise ValueError("Payload type number must contain 1 or 2 digits")
-
-        self.type_dotted = type_dotted
-        self.type_num = type_num
-        self.content = content
-
-    def _validate_type_num(type_num):
-        return 0 < type_num < 100
-
-    def _validate_dotted_form(type_dotted):
-        return len(type_dotted) == 4 and all([0 < x < 255 for x in type_dotted])

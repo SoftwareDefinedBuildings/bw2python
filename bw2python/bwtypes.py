@@ -11,45 +11,24 @@ class RoutingObject(object):
     def __init__(self, number, content):
         if number < 0 or number > 255:
             raise ValueError("Routing object number must be between 0 and 255")
-
         self.number = number
         self.content = content
 
 class PayloadObject(object):
-    @staticmethod
-    def _validate_type_num(type_num):
-        return 0 <= type_num < 100
+    def __init__(self, type_dotted, type_num, content):
+        if type_dotted is None and type_num is None:
+            raise ValueError("Failed to specify payload object type")
+        self.type_dotted = None
+        self.type_num = None
 
-    @staticmethod
-    def _validate_dotted_form(type_dotted):
-        return len(type_dotted) == 4 and all([0 <= x < 255 for x in type_dotted])
-
-    def __init__(self, type_id, content):
-        try:
-            iter(type_id)
-        except TypeError:
-            # Type is specified as a number
-            if not _validate_payload_type_num(type_id):
-                raise ValueError("Payload type number must contain 1 or 2 digits")
-            self.type_num = type_id
-            self.type_dotted = None
-        else:
-            if len(type_id) == 4:
-                # Type is specified in dotted form
-                if not _validate_payload_type_dotted(type_id):
-                    raise ValueError("Dotted payload type must contain four elements between 0 and 255")
-                self.type_num = None
-                self.type_dotted = type_id
-            elif len(type_id) == 2:
-                # Type is specified as both dotted form and number
-                dotted_form = type_id[0]
-                if not _validate_payload_type_dotted(dotted_form):
-                    raise ValueError("Dotted payload type must contain four elements between 0 and 255")
-                type_num = type_id[1]
-                if not _validate_payload_type_num(type_num):
-                    raise ValueError("Payload type number must contain 1 or 2 digits")
-                self.type_dotted = dotted_form
-                self.type_num = type_num
+        if type_dotted is not None:
+            if not _validate_payload_type_dotted(type_dotted):
+                raise ValueError("Invalid dotted payload object type")
+            self.type_dotted = type_dotted
+        if type_num is not None:
+            if not _validate_payload_type_num(type_num):
+                raise ValueError("Invalid payload object type number")
+            self.type_num = type_num
         self.content = content
 
 class Frame(object):
@@ -146,18 +125,18 @@ class Frame(object):
                         raise ValueError("Inavlid payload object type: " + po_type)
                     if po_type.startswith(':'):
                         po_type_num = int(po_type[1:])
-                        po = PayloadObject(po_type_num, body)
+                        po_type_dotted = None
                     elif po_type.endswith(':'):
                         po_type_dotted = [int(x) for x in po_type[:-1].split('.')]
-                        po = PayloadObject(po_type_dotted, body)
+                        po_type_num = None
                     else:
                         type_tokens = po_type.split(':')
                         if len(type_tokens) != 2:
                             raise ValueError("Invalid payload object type: " + po_type)
                         po_type_dotted = [int(x) for x in type_tokens[0].split('.')]
                         po_type_num = int(type_tokens[1])
-                        po = PayloadObject((po_type_dotted, po_type_num), body)
 
+                    po = PayloadObject(po_type_dotted, po_type_num, body)
                     frame.addPayloadObject(po)
                     f.read(1) # Strip trailing \n
 

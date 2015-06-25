@@ -2,7 +2,7 @@ import datetime
 import socket
 import threading
 
-from bwtypes import Frame, RoutingObject, PayloadObject, BosswaveResult, BosswaveResponse
+from bwtypes import *
 
 class Client(object):
     def _readFrame(self):
@@ -15,10 +15,7 @@ class Client(object):
                     handler = self.response_handlers.pop(seq_num, None)
                 if handler is not None:
                     status = frame.getFirstValue("status")
-                    if status != "okay":
-                        reason = frame.getFirstValue("reason")
-                    else:
-                        reason = None
+                    reason = frame.getFirstValue("reason")
                 response = BosswaveResponse(status, reason)
                 handler(response)
 
@@ -36,9 +33,6 @@ class Client(object):
                         result = BosswaveResult(from_, uri, frame.routing_objects,
                                                 frame.payload_objects)
                     handler(result)
-
-            else:
-                pass # Ignore frames of any other type
 
     def __init__(self, host_name, port):
         self.host_name = host_name
@@ -77,7 +71,7 @@ class Client(object):
     def setEntity(self, key, result_handler):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("sete", seq_num)
-        po = PayloadObject((1, 0, 1, 2), key)
+        po = PayloadObject((1, 0, 1, 2), None, key)
         frame.addPayloadObject(po)
 
         with self.response_handlers_lock:

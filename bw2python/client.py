@@ -21,8 +21,10 @@ class Client(object):
 
             elif frame.command == "rslt":
                 with self.result_handlers_lock:
-                    handler = self.result_handlers.get(seq_num)
-                if handler is not None:
+                    message_handler = self.result_handlers.get(seq_num)
+                with self.list_result_handlers_lock:
+                    list_result_handler = self.list_result_handlers.get(seq_num)
+                if message_handler is not None:
                     from_ = frame.getFirstValue("from")
                     uri = frame.getFirstValue("uri")
 
@@ -32,7 +34,14 @@ class Client(object):
                     else:
                         result = BosswaveResult(from_, uri, frame.routing_objects,
                                                 frame.payload_objects)
-                    handler(result)
+                    message_handler(result)
+                elif list_result_handler is not None:
+                    finished = frame.getFirstValue("finished")
+                    if finished.lower() == "true":
+                        list_result_handler(None)
+                    else:
+                        child = frame.getFirstValue("child")
+                        list_result_handler(child)
 
     def __init__(self, host_name, port):
         self.host_name = host_name
@@ -149,4 +158,172 @@ class Client(object):
 
         with self.response_handlers_lock:
             self.response_handlers[seq_num] = response_handler
+        frame.writeToSocket(self.socket)
+
+    def list(self, uri, response_handler, list_result_handler, primary_access_chain=None,
+                expiry=None, expiry_delta=None, elaborate_pac=None, routing_objects=None):
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("list", seq_num)
+
+        if primary_access_chain is not None:
+            frame.addKVPair("primary_access_chain", primary_access_chain)
+
+        if expiry is not None:
+            expiry_time = datetime.utcfromtimestamp(expiry)
+            frame.addKVPair("expiry", _utcToRfc3339(expiry_time))
+        if expiry_delta is not None:
+            frame.addKVPair("expirydelta", "{0}ms".format(expiry_delta))
+
+        if elaborate_pac is not None:
+            if elaborate_pac.lower() == "full":
+                frame.addKVPair("elaborate_pac", "full")
+            else:
+                frame.addKVPair("elaborate_pac", "partial")
+
+        if routing_objects is not None:
+            for ro in routing_objects:
+                frame.addRoutingObject(ro)
+
+        with self.resonse_handlers_lock:
+            self.response_handlers[seq_num] = response_handler
+        with self.list_result_handlers_lock:
+            self.list_result_handlers[seq_num] = list_result_handler
+        frame.writeToSocket(self.socket)
+
+    def query(self, uri, response_handler, result_handler, primary_access_chain=None,
+                expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
+                routing_objects=None):
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("quer", seq_num)
+
+        if primary_access_chain is not None:
+            frame.addKVPair("primary_access_chain", primary_access_chain)
+
+        if expiry is not None:
+            expiry_time = datetime.utcfromtimestamp(expiry)
+            frame.addKVPair("expiry", _utcToRfc3339(expiry_time))
+        if expiry_delta is not None:
+            frame.addKVPair("expirydelta", "{0}ms".format(expiry_delta))
+
+        if elaborate_pac is not None:
+            if elaborate_pac.lower() == "full":
+                frame.addKVPair("elaborate_pac", "full")
+            else:
+                frame.addKVPair("elaborate_pac", "partial")
+
+        if unpack:
+            frame.addKVPair("unpack", "true")
+        else:
+            frame.addKVPair("unpack", "false")
+
+        if routing_objects is not None:
+            for ro in routing_objects:
+                frame.addRoutingObject(ro)
+
+        with self.resonse_handlers_lock:
+            self.response_handlers[seq_num] = response_handler
+        with self.result_handlers_lock:
+            self.result_handlers[seq_num] = result_handler
+        frame.writeToSocket(self.socket)
+
+    def makeEntity(self, response_handler, result_hanlder, contact=None, comment=None,
+                   expiry=None, expiry_delta=None, revokers=None, omit_creation_date=False):
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("make", seq_num)
+
+        if contact is not None:
+            frame.addKVPair("contact", contact)
+        if comment is not None:
+            frame.addKVPair("comment", comment)
+
+        if expiry is not None:
+            expiry_time = datetime.utcfromtimestamp(expiry)
+            frame.addKVPair("expiry", _utfToRfc3339(expiry_time))
+        if expiry_delta is not None:
+            frame.addKVPair("expirydelta", "{0}ms".format(expiry_delta))
+
+        if revokers is not None:
+            for revoker in reovkers:
+                frame.addKVPair("revoker", revoker)
+        if omit_creation_date:
+            frame.addKVPair("omitcreationdate", "true")
+        else:
+            frame.addKVPair("omitcreationdate", "false")
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = response_handler
+        with self.result_handlers_lock:
+            self.result_handlers[seq_num] = result_handler
+        frame.writeToSocket(self.socket)
+
+    def makeDot(self, response_handler, result_hanlder, to, ttl=None, is_permission=False,
+                contact=None, comment=None, expiry=None, expiry_delta=None, revokers=None,
+                omit_creation_date=False, access_permissions=None, uri=None):
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("makd", seq_num)
+        frame.addKVPair("to", to)
+
+        if ttl is not None:
+            frame.addKVPair("ttl", str(ttl))
+
+        if is_permission:
+            frame.addKVPair("ispermission", "true")
+        else:
+            frame.addKVPair("ispermission", "false")
+
+        if contact is not None:
+            frame.addKVPair("contact", contact)
+        if comment is not None:
+            frame.addKVPair("comment", comment)
+
+        if expiry is not None:
+            expiry_time = datetime.utcfromtimestamp(expiry)
+            frame.addKVPair("expiry", _utfToRfc3339(expiry_time))
+        if expiry_delta is not None:
+            frame.addKVPair("expirydelta", "{0}ms".format(expiry_delta))
+
+        if revokers is not None:
+            for revoker in reovkers:
+                frame.addKVPair("revoker", revoker)
+
+        if omit_creation_date:
+            frame.addKVPair("omitcreationdate", "true")
+        else:
+            frame.addKVPair("omitcreationdate", "false")
+
+        if access_permissions is not None:
+            frame.addKVPair("accesspermissions", access_permissions)
+
+        if uri is not None:
+            frame.addKVPair("uri", uri)
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = response_handler
+        with self.result_handlers_lock:
+            self.result_handlers[seq_num] = result_handler
+        frame.writeToSocket(self.socket)
+
+    def makeChain(self, response_handler, result_handler, is_permission=False,
+                  unelaborate=False, dot=None):
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("makc", seq_num)
+
+        if is_permission:
+            frame.addKVPair("ispermission", "true")
+        else:
+            frame.addKVPair("ispermission", "false")
+
+        if unelaborate:
+            frame.addKVPair("unelaborate", "true")
+        else:
+            frame.addKVPair("unelaborate", "false")
+
+        if dot is not None:
+            for d in dot:
+                frame.addKVPair("dot", d)
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = response_handler
+        with self.result_handlers_lock:
+            self.result_handlers[seq_num] = result_handler
         frame.writeToSocket(self.socket)

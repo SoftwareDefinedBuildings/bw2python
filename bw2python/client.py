@@ -52,6 +52,8 @@ class Client(object):
         self.response_handlers_lock = threading.Lock()
         self.result_handlers = {}
         self.result_handlers_lock = threading.Lock()
+        self.list_result_handlers_lock = threading.Lock()
+        self.list_result_handlers = {}
 
     def connect(self):
         self.socket.connect((self.host_name, self.port))

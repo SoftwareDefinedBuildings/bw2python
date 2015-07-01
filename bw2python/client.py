@@ -20,10 +20,16 @@ class Client(object):
                 handler(response)
 
             elif frame.command == "rslt":
+                finished = frame.getFirstValue("finished")
+
                 with self.result_handlers_lock:
                     message_handler = self.result_handlers.get(seq_num)
+                    if message_handler is not None and finished == "true":
+                        del self.result_handlers[seq_num]
                 with self.list_result_handlers_lock:
                     list_result_handler = self.list_result_handlers.get(seq_num)
+                    if list_result_handler is not None and finished == "true":
+                        del self.list_result_handlers[seq_num]
                 if message_handler is not None:
                     from_ = frame.getFirstValue("from")
                     uri = frame.getFirstValue("uri")
@@ -36,8 +42,7 @@ class Client(object):
                                                 frame.payload_objects)
                     message_handler(result)
                 elif list_result_handler is not None:
-                    finished = frame.getFirstValue("finished")
-                    if finished.lower() == "true":
+                    if finished == "true":
                         list_result_handler(None)
                     else:
                         child = frame.getFirstValue("child")

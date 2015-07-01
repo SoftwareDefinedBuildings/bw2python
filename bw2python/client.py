@@ -16,8 +16,8 @@ class Client(object):
                 if handler is not None:
                     status = frame.getFirstValue("status")
                     reason = frame.getFirstValue("reason")
-                response = BosswaveResponse(status, reason)
-                handler(response)
+                    response = BosswaveResponse(status, reason)
+                    handler(response)
 
             elif frame.command == "rslt":
                 finished = frame.getFirstValue("finished")

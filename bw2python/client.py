@@ -289,8 +289,6 @@ class Client(object):
 
         if is_permission:
             frame.addKVPair("ispermission", "true")
-        else:
-            frame.addKVPair("ispermission", "false")
 
         if contact is not None:
             frame.addKVPair("contact", contact)
@@ -331,13 +329,9 @@ class Client(object):
 
         if is_permission:
             frame.addKVPair("ispermission", "true")
-        else:
-            frame.addKVPair("ispermission", "false")
 
         if unelaborate:
             frame.addKVPair("unelaborate", "true")
-        else:
-            frame.addKVPair("unelaborate", "false")
 
         if dot is not None:
             for d in dot:

@@ -91,7 +91,7 @@ class Client(object):
 
     def subscribe(self, uri, response_handler, result_handler, primary_access_chain=None,
                   expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
-                  routing_objects=None):
+                  auto_chain=False, routing_objects=None):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("subs", seq_num)
         frame.addKVPair("uri", uri)
@@ -116,6 +116,9 @@ class Client(object):
         else:
             frame.addKVPair("unpack", "false")
 
+        if auto_chain:
+            frame.addKVPair("autochain", "true")
+
         if routing_objects is not None:
             for ro in routing_objects:
                 frame.addRoutingObject(ro)
@@ -127,8 +130,8 @@ class Client(object):
         frame.writeToSocket(self.socket)
 
     def publish(self, uri, response_handler, persist=False, primary_access_chain=None,
-                expiry=None, expiry_delta=None, elaborate_pac=None, routing_objects=None,
-                payload_objects=None):
+                expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
+                routing_objects=None, payload_objects=None):
         seq_num = Frame.generateSequenceNumber()
         if persist:
             frame = Frame("pers", seq_num)
@@ -151,6 +154,9 @@ class Client(object):
             else:
                 frame.addKVPair("elaborate_pac", "partial")
 
+        if auto_chain:
+            frame.addKVPair("autochain", "true")
+
         if routing_objects is not None:
             for ro in routing_objects:
                 frame.addRoutingObject(ro)
@@ -163,7 +169,8 @@ class Client(object):
         frame.writeToSocket(self.socket)
 
     def list(self, uri, response_handler, list_result_handler, primary_access_chain=None,
-                expiry=None, expiry_delta=None, elaborate_pac=None, routing_objects=None):
+                expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
+                routing_objects=None):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("list", seq_num)
 
@@ -182,6 +189,9 @@ class Client(object):
             else:
                 frame.addKVPair("elaborate_pac", "partial")
 
+        if auto_chain:
+            frame.addKVPair("autochain", "true")
+
         if routing_objects is not None:
             for ro in routing_objects:
                 frame.addRoutingObject(ro)
@@ -194,7 +204,7 @@ class Client(object):
 
     def query(self, uri, response_handler, result_handler, primary_access_chain=None,
                 expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
-                routing_objects=None):
+                auto_chain=False, routing_objects=None):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("quer", seq_num)
 
@@ -217,6 +227,10 @@ class Client(object):
             frame.addKVPair("unpack", "true")
         else:
             frame.addKVPair("unpack", "false")
+
+        if auto_chain:
+            frame.addKVPair("autochain", "true")
+
 
         if routing_objects is not None:
             for ro in routing_objects:

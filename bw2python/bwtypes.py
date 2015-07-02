@@ -2,7 +2,7 @@ import contextlib
 import random
 
 def _validate_payload_type_num(type_num):
-    return 0 <= type_num < 100
+    return 0 <= type_num
 
 def _validate_payload_type_dotted(type_dotted):
     return len(type_dotted) == 4 and all([0 <= x < 255 for x in type_dotted])

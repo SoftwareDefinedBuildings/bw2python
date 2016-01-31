@@ -99,7 +99,7 @@ class Client(object):
         po = PayloadObject((1, 0, 1, 2), None, key)
         frame.addPayloadObject(po)
 
-        def resultHandler(result):
+        def responseHandler(result):
             with self.synchronous_results_lock:
                 self.synchronous_results[seq_num] = result
                 self.synchronous_cond_vars[seq_num].notify()

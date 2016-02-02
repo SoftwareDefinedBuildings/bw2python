@@ -127,13 +127,13 @@ class Frame(object):
                         po_type_num = int(po_type[1:])
                         po_type_dotted = None
                     elif po_type.endswith(':'):
-                        po_type_dotted = [int(x) for x in po_type[:-1].split('.')]
+                        po_type_dotted = tuple([int(x) for x in po_type[:-1].split('.')])
                         po_type_num = None
                     else:
                         type_tokens = po_type.split(':')
                         if len(type_tokens) != 2:
                             raise ValueError("Invalid payload object type: " + po_type)
-                        po_type_dotted = [int(x) for x in type_tokens[0].split('.')]
+                        po_type_dotted = tuple([int(x) for x in type_tokens[0].split('.')])
                         po_type_num = int(type_tokens[1])
 
                     po = PayloadObject(po_type_dotted, po_type_num, body)

@@ -7,6 +7,10 @@ def _validate_payload_type_num(type_num):
 def _validate_payload_type_dotted(type_dotted):
     return len(type_dotted) == 4 and all([0 <= x < 255 for x in type_dotted])
 
+def _validate_payload_type_both(type_dotted, type_num):
+    octet_val = (type_dotted[0] << 24) + (type_dotted[1] << 16) + (type_dotted[2] << 8) + type_dotted[3]
+    return octet_val == type_num
+
 class RoutingObject(object):
     def __init__(self, number, content):
         if number < 0 or number > 255:
@@ -29,6 +33,10 @@ class PayloadObject(object):
             if not _validate_payload_type_num(type_num):
                 raise ValueError("Invalid payload object type number")
             self.type_num = type_num
+        if self.type_dotted is not None and self.type_num is not None:
+            if not _validate_payload_type_both(self.type_dotted, self.type_num):
+                raise ValueError("Payload object type octet and number don't agree")
+
         self.content = content
 
 class Frame(object):

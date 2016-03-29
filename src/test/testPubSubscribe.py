@@ -1,7 +1,7 @@
 import unittest
 
-from bwtypes import PayloadObject
-from client import Client
+from bw2python.bwtypes import PayloadObject
+from bw2python.client import Client
 from threading import Semaphore
 
 MESSAGES = [
@@ -11,7 +11,7 @@ MESSAGES = [
     "dolor sit amet"
 ]
 PAC = "lGhzBEz_uyAz2sOjJ9kmfyJEl1MakBZP3mKC-DNCNYE="
-KEY_FILE = "test/test.key"
+KEY_FILE = "test.key"
 URI = "castle.bw2.io/bar/baz"
 
 class TestPubSubscribe(unittest.TestCase):
@@ -50,7 +50,7 @@ class TestPubSubscribe(unittest.TestCase):
 
     def testPublishSubscribe(self):
         for msg in MESSAGES:
-            po = PayloadObject((64, 0, 0, 0), 4, msg)
+            po = PayloadObject((64, 0, 0, 0), None, msg)
             self.bw_client.publish(URI, self.onPublishResponse, payload_objects=(po,),
                     primary_access_chain=PAC, elaborate_pac="full")
         self.semaphore.acquire()

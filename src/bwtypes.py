@@ -53,8 +53,14 @@ class Frame(object):
     def addRoutingObject(self, ro):
         self.routing_objects.append(ro)
 
+    def addRoutingObjects(self, ros):
+        self.routing_objects += ros
+
     def addPayloadObject(self, po):
         self.payload_objects.append(po)
+
+    def addPayloadObjects(self, pos):
+        self.payload_objects += pos
 
     def getFirstValue(self, key):
         matchingValues = [y for x,y in self.kv_pairs if x == key]
@@ -159,9 +165,19 @@ class Frame(object):
         return random.randint(0, 2**32 - 1)
 
 class BosswaveResponse(object):
-    def __init__(self, status, reason):
+    def __init__(self, status, reason, kv_pairs, routing_objects, payload_objects):
         self.status = status
         self.reason = reason
+        self.kv_pairs = kv_pairs
+        self.routing_objects = routing_objects
+        self.payload_objects = payload_objects
+
+    def getFirstValue(self, key):
+        matchingValues = [y for x,y in self.kv_pairs if x == key]
+        if len(matchingValues) > 0:
+            return matchingValues[0]
+        else:
+            return None
 
 class BosswaveResult(object):
     def __init__(self, from_, uri, routing_objects, payload_objects):
@@ -169,3 +185,10 @@ class BosswaveResult(object):
         self.uri = uri
         self.routing_objects = routing_objects
         self.payload_objects = payload_objects
+
+    def getFirstValue(self, key):
+        matchingValues = [y for x,y in self.kv_pairs if x == key]
+        if len(matchingValues) > 0:
+            return matchingValues[0]
+        else:
+            return None

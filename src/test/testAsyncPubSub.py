@@ -10,9 +10,9 @@ MESSAGES = [
     "Lorem ipsum",
     "dolor sit amet"
 ]
-PAC = "lGhzBEz_uyAz2sOjJ9kmfyJEl1MakBZP3mKC-DNCNYE="
-KEY_FILE = "test.key"
-URI = "castle.bw2.io/bar/baz"
+
+URI = "scratch.ns/unittests/python"
+KEY_FILE = "unitTests.key"
 
 class TestPubSubscribe(unittest.TestCase):
     def onSetEntityResponse(self, response):
@@ -39,10 +39,10 @@ class TestPubSubscribe(unittest.TestCase):
         self.semaphore = Semaphore(0)
         self.bw_client = Client('localhost', 28589)
         self.bw_client.connect()
-        self.bw_client.setEntityFromFile(KEY_FILE, self.onSetEntityResponse)
+        self.bw_client.asyncSetEntityFromFile(KEY_FILE, self.onSetEntityResponse)
         self.semaphore.acquire()
-        self.bw_client.subscribe(URI, self.onSubscribeResponse, self.onMessage,
-                primary_access_chain=PAC, elaborate_pac="full", expiry_delta=3600000)
+        self.bw_client.asyncSubscribe(URI, self.onSubscribeResponse, self.onMessage,
+                                 auto_chain=True, expiry_delta=3600000)
         self.semaphore.acquire()
 
     def tearDown(self):
@@ -51,8 +51,8 @@ class TestPubSubscribe(unittest.TestCase):
     def testPublishSubscribe(self):
         for msg in MESSAGES:
             po = PayloadObject((64, 0, 0, 0), None, msg)
-            self.bw_client.publish(URI, self.onPublishResponse, payload_objects=(po,),
-                    primary_access_chain=PAC, elaborate_pac="full")
+            self.bw_client.asyncPublish(URI, self.onPublishResponse, payload_objects=(po,),
+                                   auto_chain=True)
         self.semaphore.acquire()
 
 if __name__ == "__main__":

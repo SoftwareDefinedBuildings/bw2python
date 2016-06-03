@@ -1,10 +1,14 @@
 import datetime
 import socket
+import sys
 import threading
 
 from bwtypes import *
 
+ENTITY_PO_NUM = (0, 0, 0, 50)
+
 class Client(object):
+    # This is run in a separate thread to listen for incoming frames
     def _readFrame(self):
         while True:
             frame = Frame.readFromSocket(self.socket)
@@ -16,8 +20,19 @@ class Client(object):
                 if handler is not None:
                     status = frame.getFirstValue("status")
                     reason = frame.getFirstValue("reason")
-                    response = BosswaveResponse(status, reason)
-                    handler(response)
+                    response = BosswaveResponse(status, reason, frame.kv_pairs,
+                                                frame.routing_objects,
+                                                frame.payload_objects)
+
+
+                # If the operation failed, we need to clean up result handlers
+                if status != "okay":
+                    with self.result_handlers_lock:
+                        self.result_handlers.pop(seq_num)
+                    with self.list_result_handlers_lock:
+                        self.list_result_handlers.pop(seq_num)
+
+                handler(response)
 
             elif frame.command == "rslt":
                 finished = frame.getFirstValue("finished")
@@ -49,6 +64,7 @@ class Client(object):
                         child = frame.getFirstValue("child")
                         list_result_handler(child)
 
+
     def __init__(self, host_name, port):
         self.host_name = host_name
         self.port = port
@@ -65,6 +81,7 @@ class Client(object):
         self.synchronous_results_lock = threading.Lock()
         self.synchronous_cond_vars = {}
 
+
     def connect(self):
         self.socket.connect((self.host_name, self.port))
         frame = Frame.readFromSocket(self.socket)
@@ -76,32 +93,35 @@ class Client(object):
         self.listener_thread.daemon = True
         self.listener_thread.start()
 
+
     def close(self):
         self.socket.close()
+
 
     @staticmethod
     def _utcToRfc3339(dt):
         return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    def setEntity(self, key, result_handler):
+
+    def asyncSetEntity(self, key, response_handler):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("sete", seq_num)
-        po = PayloadObject((1, 0, 1, 2), None, key)
+        po = PayloadObject(ENTITY_PO_NUM, None, key)
         frame.addPayloadObject(po)
 
         with self.response_handlers_lock:
-            self.response_handlers[seq_num] = result_handler
+            self.response_handlers[seq_num] = response_handler
         frame.writeToSocket(self.socket)
 
-    def synchronousSetEntity(self, key):
+    def setEntity(self, key):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("sete", seq_num)
-        po = PayloadObject((1, 0, 1, 2), None, key)
+        po = PayloadObject(ENTITY_PO_NUM, None, key)
         frame.addPayloadObject(po)
 
-        def responseHandler(result):
+        def responseHandler(response):
             with self.synchronous_results_lock:
-                self.synchronous_results[seq_num] = result
+                self.synchronous_results[seq_num] = response
                 self.synchronous_cond_vars[seq_num].notify()
 
         with self.response_handlers_lock:
@@ -114,36 +134,41 @@ class Client(object):
         with self.synchronous_results_lock:
             while seq_num not in self.synchronous_results:
                 self.synchronous_cond_vars[seq_num].wait()
-            result = self.synchronous_results.pop(seq_num)
+            response = self.synchronous_results.pop(seq_num)
             del self.synchronous_cond_vars[seq_num]
 
-        return result
+        if response.status != "okay":
+            with self.result_handlers_lock:
+                del self.result_handlers[seq_num]
+            raise RuntimeError("Failed to set entity: " + result.reason)
+        else:
+            return result.getFirstValue("vk")
 
-    def setEntityFromFile(self, key_file_name, result_handler):
+    def asyncSetEntityFromFile(self, key_file_name, response_handler):
         with open(key_file_name) as f:
             f.read(1) # Strip leading byte
             key = f.read()
-        self.setEntity(key, result_handler)
+        self.asyncSetEntity(key, response_handler)
 
-    def synchronousSetEntityFromFile(self, key_file_name):
+    def setEntityFromFile(self, key_file_name):
         with open(key_file_name) as f:
             f.read(1) # Strip leading byte
             key = f.read()
-        return self.synchronousSetEntity(key)
+        return self.setEntity(key)
 
-    def subscribe(self, uri, response_handler, result_handler, primary_access_chain=None,
-                  expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
-                  auto_chain=False, routing_objects=None):
+
+    @staticmethod
+    def _createSubscribeFrame(uri, primary_access_chain, expiry, expiry_delta,
+                              elaborate_pac, unpack, auto_chain, routing_objects):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("subs", seq_num)
         frame.addKVPair("uri", uri)
 
         if primary_access_chain is not None:
             frame.addKVPair("primary_access_chain", primary_access_chain)
-
         if expiry is not None:
             expiry_time = datetime.utcfromtimestamp(expiry)
-            frame.addKVPair("expiry", _utcToRfc3339(expiry_time))
+            frame.addKVPair("expiry", Client._utcToRfc3339(expiry_time))
         if expiry_delta is not None:
             frame.addKVPair("expirydelta", "{0}ms".format(expiry_delta))
 
@@ -152,7 +177,6 @@ class Client(object):
                 frame.addKVPair("elaborate_pac", "full")
             else:
                 frame.addKVPair("elaborate_pac", "partial")
-
         if unpack:
             frame.addKVPair("unpack", "true")
         else:
@@ -162,18 +186,57 @@ class Client(object):
             frame.addKVPair("autochain", "true")
 
         if routing_objects is not None:
-            for ro in routing_objects:
-                frame.addRoutingObject(ro)
+            frame.addRoutingObjects(routing_objects)
+
+        return frame
+
+    def asyncSubscribe(self, uri, response_handler, result_handler, primary_access_chain=None,
+                       expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
+                       auto_chain=False, routing_objects=None):
+        frame = Client._createSubscribeFrame(uri, primary_access_chain, expiry,
+                                             expiry_delta, elaborate_pac, unpack,
+                                             auto_chain, routing_objects)
 
         with self.response_handlers_lock:
-            self.response_handlers[seq_num] = response_handler
+            self.response_handlers[frame.seq_num] = response_handler
         with self.result_handlers_lock:
-            self.result_handlers[seq_num] = result_handler
+            self.result_handlers[frame.seq_num] = result_handler
         frame.writeToSocket(self.socket)
 
-    def publish(self, uri, response_handler, persist=False, primary_access_chain=None,
-                expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
-                routing_objects=None, payload_objects=None):
+    def subscribe(self, uri, result_handler, primary_access_chain=None, expiry=None,
+                  expiry_delta=None, elaborate_pac=None, unpack=True,
+                  auto_chain=False, routing_objects=None):
+        frame = Client._createSubscribeFrame(uri, primary_access_chain, expiry,
+                                             expiry_delta, elaborate_pac, unpack,
+                                             auto_chain, routing_objects)
+
+        def responseHandler(response):
+            with self.synchronous_results_lock:
+                self.synchronous_results[frame.seq_num] = response
+                self.synchronous_cond_vars[frame.seq_num].notify()
+
+        with self.response_handlers_lock:
+            self.response_handlers[frame.seq_num] = responseHandler
+        with self.result_handlers_lock:
+            self.result_handlers[frame.seq_num] = result_handler
+        with self.synchronous_results_lock:
+            self.synchronous_cond_vars[frame.seq_num] = \
+                    threading.Condition(self.synchronous_results_lock)
+        frame.writeToSocket(self.socket)
+
+        with self.synchronous_results_lock:
+            while frame.seq_num not in self.synchronous_results:
+                self.synchronous_cond_vars[frame.seq_num].wait()
+            result = self.synchronous_results.pop(frame.seq_num)
+            del self.synchronous_cond_vars[seq_num]
+
+        if result.status != "okay":
+            raise RuntimeError("Failed to subscribe: " + result.reason)
+
+
+    @staticmethod
+    def _createPublishFrame(uri, persist, primary_access_chain, expiry, expiry_delta,
+                            elaborate_pac, auto_chain, routing_objects, payload_objects):
         seq_num = Frame.generateSequenceNumber()
         if persist:
             frame = Frame("pers", seq_num)
@@ -200,15 +263,53 @@ class Client(object):
             frame.addKVPair("autochain", "true")
 
         if routing_objects is not None:
-            for ro in routing_objects:
-                frame.addRoutingObject(ro)
+            frame.addRoutingObjects(routing_objects)
         if payload_objects is not None:
-            for po in payload_objects:
-                frame.addPayloadObject(po)
+            frame.addPayloadObjects(payload_objects)
+
+        return frame
+
+    def asyncPublish(self, uri, response_handler, persist=False, primary_access_chain=None,
+                     expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
+                     routing_objects=None, payload_objects=None):
+        frame = Client._createPublishFrame(uri, persist, primary_access_chain, expiry,
+                                           expiry_delta, elaborate_pac, auto_chain,
+                                           routing_objects, payload_objects)
 
         with self.response_handlers_lock:
-            self.response_handlers[seq_num] = response_handler
+            self.response_handlers[frame.seq_num] = response_handler
         frame.writeToSocket(self.socket)
+
+    def publish(self, uri, persist=False, primary_access_chain=None, expiry=None,
+                expiry_delta=None, elaborate_pac=None, auto_chain=False,
+                routing_objects=None, payload_objects=None):
+        frame = Client._createPublishFrame(uri, persist, primary_access_chain, expiry,
+                                           expiry_delta, elaborate_pac, auto_chain,
+                                           routing_objects, payload_objects)
+
+        def responseHandler(response):
+            with self.synchronous_results_lock:
+                self.synchronous_results[frame.seq_num] = response
+                self.synchronous_cond_vars[frame.seq_num].notify()
+
+        with self.response_handlers_lock:
+            self.response_handlers[frame.seq_num] = responseHandler
+        with self.result_handlers_lock:
+            self.result_handlers[frame.seq_num] = result_handler
+        with self.synchronous_results_lock:
+            self.synchronous_cond_vars[frame.seq_num] = \
+                    threading.Condition(self.synchronous_results_lock)
+        frame.writeToSocket(self.socket)
+
+        with self.synchronous_results_lock:
+            while frame.seq_num not in self.synchronous_results:
+                self.synchronous_cond_vars[frame.seq_num].wait()
+            response = self.synchronous_results.pop(frame.seq_num)
+            del self.synchronous_cond_vars[seq_num]
+
+        if response.status != "okay":
+            raise RuntimeError("Failed to publish: " + response.reason)
+
 
     @staticmethod
     def _createListFrame(uri, expiry, expiry_delta, elaborate_pac, auto_chain,
@@ -240,11 +341,11 @@ class Client(object):
 
         return frame
 
-    def list(self, uri, response_handler, list_result_handler, primary_access_chain=None,
-                expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
+    def asyncList(self, uri, response_handler, list_result_handler, primary_access_chain=None,
+                  expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
                 routing_objects=None):
-        frame = _createListFrame(uri, primary_access_chain, expiry, expiry_delta,
-                                elaborate_pac, auto_chain, routing_objects)
+        frame = Client._createListFrame(uri, primary_access_chain, expiry, expiry_delta,
+                                        elaborate_pac, auto_chain, routing_objects)
 
         with self.resonse_handlers_lock:
             self.response_handlers[frame.seq_num] = response_handler
@@ -252,11 +353,10 @@ class Client(object):
             self.list_result_handlers[frame.seq_num] = list_result_handler
         frame.writeToSocket(self.socket)
 
-    def synchronousList(self, uri, primary_access_chain=None, expiry=None,
-                         expiry_delta=None, elaborate_pac=None, auto_chain=False,
-                         routing_objects=None):
-        frame = _createListFrame(uri, primary_access_chain, expiry, expiry_delta,
-                                elaborate_pac, auto_chain, routing_objects)
+    def list(self, uri, primary_access_chain=None, expiry=None, expiry_delta=None,
+             elaborate_pac=None, auto_chain=False, routing_objects=None):
+        frame = Client._createListFrame(uri, primary_access_chain, expiry, expiry_delta,
+                                        elaborate_pac, auto_chain, routing_objects)
 
         def responseHandler(response):
             if response.status != "okay":
@@ -290,13 +390,14 @@ class Client(object):
 
         # The result will be a string if an error has occurred
         if type(result) is str:
-            raise RuntimeError(result)
+            raise RuntimeError("List operation failed: " + result)
         else:
             return result
 
-    def query(self, uri, response_handler, result_handler, primary_access_chain=None,
-                expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
-                auto_chain=False, routing_objects=None):
+
+    @staticmethod
+    def _createQueryFrame(uri, primary_access_chain, expiry, expiry_delta,
+                         elaborate_pac, unpack, auto_chain, routing_objects):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("quer", seq_num)
 
@@ -324,14 +425,63 @@ class Client(object):
             frame.addKVPair("autochain", "true")
 
         if routing_objects is not None:
-            for ro in routing_objects:
-                frame.addRoutingObject(ro)
+            frame.addRoutingObjects(routing_objects)
+
+        return frame
+
+    def asyncQuery(self, uri, response_handler, result_handler, primary_access_chain=None,
+                   expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
+                   auto_chain=False, routing_objects=None):
+        frame = Client._createQueryFrame(uri, primary_access_chain, expiry,
+                                         expiry_delta, elaborate_pac, unpack,
+                                         auto_chain, routing_objects)
 
         with self.resonse_handlers_lock:
             self.response_handlers[seq_num] = response_handler
         with self.result_handlers_lock:
             self.result_handlers[seq_num] = result_handler
         frame.writeToSocket(self.socket)
+
+    def query(self, uri, result_handler, primary_access_chain=None, expiry=None,
+              expiry_delta=None, elaborate_pac=None, unpack=True, auto_chain=False,
+              routing_objects=None):
+        frame = Client._createQueryFrame(uri, primary_access_chain, exoiry,
+                                         expiry_delta, elaborate_pac, unpack,
+                                         auto_chain, routing_objects)
+
+        def responseHandler(response):
+            if response.status != "okay":
+                with synchronous_results_lock:
+                    self.synchronous_results[frame.seq_num] = response.reason
+                    self.synchronous_cond_vars[frame.seq_num].notify()
+
+        results = []
+        def resultHandler(result):
+            results.append(result)
+            finished = result.getFirstValue("finished")
+            if finished == "true":
+                with self.synchronous_results_lock:
+                    self.synchronous_results[frame.seq_num] = results
+                    self.synchronous_cond_vars[frame.seq_num].notify()
+
+        with self.response_handlers_lock:
+            self.response_handlers[frame.seq_num] = responseHandler
+        with self.result_handlers_lock:
+            self.result_handlers[frame.seq_num] = resultHandler
+        with self.synchronous_results_lock:
+            self.synchronous_cond_vars[frame.seq_num] = threading.Condition()
+
+        with self.synchronous_results_lock:
+            while frame.seq_num not in self.synchronous_results:
+                self.synchronous_cond_vars[frame.seq_num].wait()
+            result = self.synchronous_results.pop(frame.seq_num)
+            del self.synchronous_cond_vars[frame.seq_num]
+
+        if type(result) is str:
+            raise RuntimeError("Failed to query: " + result)
+        else:
+            return result
+
 
     @staticmethod
     def _createMakeEntityFrame(contact, comment, expiry, expiry_delta, revokers,
@@ -360,36 +510,36 @@ class Client(object):
 
         return frame
 
-    def makeEntity(self, response_handler, result_hanlder, contact=None, comment=None,
-                   expiry=None, expiry_delta=None, revokers=None, omit_creation_date=False):
-        frame = _createMakeEntityFrame(contact, comment, expiry, expiry_delta, revokers,
-                                       omit_creation_date)
+    def asyncMakeEntity(self, response_handler, contact=None, comment=None,
+                        expiry=None, expiry_delta=None, revokers=None,
+                        omit_creation_date=False):
+        frame = Client._createMakeEntityFrame(contact, comment, expiry, expiry_delta,
+                                              revokers, omit_creation_date)
         with self.response_handlers_lock:
             self.response_handlers[frame.seq_num] = response_handler
-        with self.result_handlers_lock:
-            self.result_handlers[frame.seq_num] = result_handler
         frame.writeToSocket(self.socket)
 
-    def synchronousMakeEntity(self, contact=None, comment=None, expiry=None,
-                              expiry_delta=None, revokers=None, omit_creation_date=False):
-        frame = _createMakeEntityFrame(contact, comment, expiry, expiry_delta, revokers,
-                                       omit_creation_date)
+    def makeEntity(self, contact=None, comment=None, expiry=None, expiry_delta=None,
+                   revokers=None, omit_creation_date=False):
+        frame = Client._createMakeEntityFrame(contact, comment, expiry, expiry_delta,
+                                              revokers, omit_creation_date)
 
         def responseHandler(response):
-            if response.status != "okay":
-                with self.synchronous_results_lock:
-                    self.synchronous_results[frame.seq_num] = response.reason
-                    self.synchronous_cond_vars[frame.seq_num].notify()
-
-        def resultHandler(result):
+            if response.status == "okay":
+                if len(response.payload_objects) != 1:
+                    result = "Too few payload objects in response"
+                else:
+                    vk = response.getFirstValue("vk")
+                    raw_entity = response.payload_objects[0].content
+                    result = (vk, raw_entity)
+            else:
+                result = response.reason
             with self.synchronous_results_lock:
                 self.synchronous_results[frame.seq_num] = result
                 self.synchronous_cond_vars[frame.seq_num].notify()
 
         with self.response_handlers_lock:
             self.response_handlers[frame.seq_num] = responseHandler
-        with self.result_handlers_lock:
-            self.result_handlers[frame.seq_num] = resultHandler
         with self.synchronous_results_lock:
             self.synchronous_cond_vars[frame.seq_num] = \
                     threading.Condition(self.synchronous_results_lock)
@@ -401,19 +551,21 @@ class Client(object):
             result = self.synchronous_results.pop(frame.seq_num)
             del self.synchronous_cond_vars[frame.seq_num]
 
-        # The result will be a BosswaveResult object unless an error has occurred
+        # The result will be a string if an error has occurred
         if type(result) is str:
             raise RuntimeError(result)
         else:
             return result
 
+
     @staticmethod
-    def _createMakeDotFrame(to, ttl, is_permission, contact, comment, expiry,
+    def _createMakeDotFrame(to, uri, ttl, is_permission, contact, comment, expiry,
                             expiry_delta, revokers, omit_creation_date,
-                            access_permissions, uri):
+                            access_permissions):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("makd", seq_num)
         frame.addKVPair("to", to)
+        frame.addKVPair("uri", uri)
 
         if ttl is not None:
             frame.addKVPair("ttl", str(ttl))
@@ -444,38 +596,36 @@ class Client(object):
         if access_permissions is not None:
             frame.addKVPair("accesspermissions", access_permissions)
 
-        if uri is not None:
-            frame.addKVPair("uri", uri)
-
         return frame
 
-    def makeDot(self, response_handler, result_hanlder, to, ttl=None, is_permission=False,
-                contact=None, comment=None, expiry=None, expiry_delta=None, revokers=None,
-                omit_creation_date=False, access_permissions=None, uri=None):
-        frame = _createMakeDotFrame(to, ttl, is_permission, contact, comment, expiry,
-                                    expiry_delta, revokers, omit_creation_date,
-                                    access_permissions, uri)
+    def asyncMakeDot(self, response_handler, to, uri, ttl=None, is_permission=False,
+                     contact=None, comment=None, expiry=None, expiry_delta=None,
+                     revokers=None, omit_creation_date=False, access_permissions=None):
+        frame = Client._createMakeDotFrame(to, ttl, is_permission, contact, comment,
+                                           expiry, expiry_delta, revokers,
+                                           omit_creation_date, access_permissions, uri)
 
         with self.response_handlers_lock:
             self.response_handlers[frame.seq_num] = response_handler
-        with self.result_handlers_lock:
-            self.result_handlers[frame.seq_num] = result_handler
         frame.writeToSocket(self.socket)
 
-    def synchronousMakeDot(self, to, ttl=None, is_permission=False, contact=None,
-                           comment=None, expiry=None, expiry_delta=None, revokers=None,
-                           omit_creation_date=False, access_permissions=None, uri=None):
-        frame = _createMakeDotFrame(to, tll, is_permission, contact, comment, expiry,
-                                    expiry_delta, revokers, omit_creation_date,
-                                    access_permissions, uri)
+    def makeDot(self, to, uri, ttl=None, is_permission=False, contact=None,
+                comment=None, expiry=None, expiry_delta=None, revokers=None,
+                omit_creation_date=False, access_permissions=None):
+        frame = Client._createMakeDotFrame(to, uri, ttl, is_permission, contact, comment,
+                                           expiry, expiry_delta, revokers,
+                                           omit_creation_date, access_permissions)
 
         def responseHandler(response):
-            if response.status != "okay":
-                with self.synchronous_results_lock:
-                    self.synchronous_results[frame.seq_num] = response.reason
-                    self.synchronous_cond_vars[frame.seq_num].notify()
-
-        def resultHandler(result):
+            if response.status == "okay":
+                if len(response.payload_objects) != 1:
+                    result = "Too few payload objects in response"
+                else:
+                    hash_ = response.getFirstValue("hash")
+                    raw_dot = response.payload_objects[0].content
+                    result = (hash_, raw_dot)
+            else:
+                result = response.reason
             with self.synchronous_results_lock:
                 self.synchronous_results[frame.seq_num] = result
                 self.synchronous_cond_vars[frame.seq_num].notify()
@@ -501,8 +651,9 @@ class Client(object):
         else:
             return result
 
-    def makeChain(self, response_handler, result_handler, is_permission=False,
-                  unelaborate=False, dot=None):
+
+    def asyncMakeChain(self, response_handler, is_permission=False,
+                       unelaborate=False, dots=None):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("makc", seq_num)
 
@@ -512,17 +663,15 @@ class Client(object):
         if unelaborate:
             frame.addKVPair("unelaborate", "true")
 
-        if dot is not None:
-            for d in dot:
+        if dots is not None:
+            for d in dots:
                 frame.addKVPair("dot", d)
 
         with self.response_handlers_lock:
             self.response_handlers[seq_num] = response_handler
-        with self.result_handlers_lock:
-            self.result_handlers[seq_num] = result_handler
         frame.writeToSocket(self.socket)
 
-    def synchronousMakeChain(self, is_permission=False, unelaborate=False, dot=None):
+    def makeChain(self, is_permission=False, unelaborate=False, dots=None):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("makc", seq_num)
 
@@ -532,32 +681,32 @@ class Client(object):
         if unelaborate:
             frame.addKVPair("unelaborate", "true")
 
-        if dot is not None:
-            for d in dot:
+        if dots is not None:
+            for d in dots:
                 frame.addKVPair("dot", d)
 
         def responseHandler(response):
-            if response.status != "okay":
-                with self.synchronous_results_lock:
-                   self.synchronous_results[seq_num] = response.reason
-                   self.synchronous_cond_vars[seq_num].notify()
-
-        def resultHandler(result):
+            if response.status == "okay":
+                if len(response.routing_objects) != 1:
+                    result = "Too few routing objects in response"
+                else:
+                    hash_ = response.getFirstValue("hash")
+                    result = (hash, response.routing_objects[0])
+            else:
+                result = response.reason
             with self.synchronous_results_lock:
-                self.synchronous_results[seq_num] = result
-                self.synchronous_cond_vars[seq_num].notify()
+                self.synchronous_results[frame.seq_num] = result
+                self.synchronous_cond_vars[frame.seq_num].notify()
 
         with self.response_handlers_lock:
-            self.response_handlers[seq_num] = response_handler
-        with self.result_handlers_lock:
-            self.result_handlers[seq_num] = result_handler
+            self.response_handlers[frame.seq_num] = response_handler
         with self.synchronous_results_lock:
-            self.synchronous_cond_vars[seq_num] = \
+            self.synchronous_cond_vars[frame.seq_num] = \
                     threading.Condition(self.synchronous_results_lock)
         frame.writeToSocket(self.socket)
 
         with self.synchronous_results_lock:
-            while seq_num not in self.synchronous_results:
+            while frame.seq_num not in self.synchronous_results:
                 self.synchronous_cond_vars[seq_num].wait()
             result = self.synchronous_results.pop(seq_num)
             del self.synchronous_cond_vars[seq_num]

@@ -1,4 +1,5 @@
 import datetime
+import os
 import socket
 import sys
 import threading
@@ -52,9 +53,10 @@ class Client(object):
 
                     unpack = frame.getFirstValue("unpack")
                     if unpack is not None and unpack.lower() == "false":
-                        result = BosswaveResult(from_, uri, None, None)
+                        result = BosswaveResult(from_, uri, frame.kv_pairs, None, None)
                     else:
-                        result = BosswaveResult(from_, uri, frame.routing_objects,
+                        result = BosswaveResult(from_, uri, frame.kv_pairs,
+                                                frame.routing_objects,
                                                 frame.payload_objects)
                     message_handler(result)
                 elif list_result_handler is not None:
@@ -155,6 +157,9 @@ class Client(object):
             f.read(1) # Strip leading byte
             key = f.read()
         return self.setEntity(key)
+
+    def setEntityFromEnviron(self):
+        return self.setEntityFromFile(os.environ['BW2_DEFAULT_ENTITY'])
 
 
     @staticmethod
@@ -310,10 +315,11 @@ class Client(object):
 
 
     @staticmethod
-    def _createListFrame(uri, expiry, expiry_delta, elaborate_pac, auto_chain,
-                         routing_objects):
+    def _createListFrame(uri, primary_access_chain, expiry, expiry_delta,
+                         elaborate_pac, auto_chain, routing_objects):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("list", seq_num)
+        frame.addKVPair("uri", uri)
 
         if primary_access_chain is not None:
             frame.addKVPair("primary_access_chain", primary_access_chain)
@@ -341,11 +347,11 @@ class Client(object):
 
     def asyncList(self, uri, response_handler, list_result_handler, primary_access_chain=None,
                   expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
-                routing_objects=None):
+                  routing_objects=None):
         frame = Client._createListFrame(uri, primary_access_chain, expiry, expiry_delta,
                                         elaborate_pac, auto_chain, routing_objects)
 
-        with self.resonse_handlers_lock:
+        with self.response_handlers_lock:
             self.response_handlers[frame.seq_num] = response_handler
         with self.list_result_handlers_lock:
             self.list_result_handlers[frame.seq_num] = list_result_handler
@@ -398,6 +404,7 @@ class Client(object):
                          elaborate_pac, unpack, auto_chain, routing_objects):
         seq_num = Frame.generateSequenceNumber()
         frame = Frame("quer", seq_num)
+        frame.addKVPair("uri", uri)
 
         if primary_access_chain is not None:
             frame.addKVPair("primary_access_chain", primary_access_chain)
@@ -434,10 +441,10 @@ class Client(object):
                                          expiry_delta, elaborate_pac, unpack,
                                          auto_chain, routing_objects)
 
-        with self.resonse_handlers_lock:
-            self.response_handlers[seq_num] = response_handler
+        with self.response_handlers_lock:
+            self.response_handlers[frame.seq_num] = response_handler
         with self.result_handlers_lock:
-            self.result_handlers[seq_num] = result_handler
+            self.result_handlers[frame.seq_num] = result_handler
         frame.writeToSocket(self.socket)
 
     def query(self, uri, result_handler, primary_access_chain=None, expiry=None,

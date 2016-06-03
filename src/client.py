@@ -28,9 +28,9 @@ class Client(object):
                 # If the operation failed, we need to clean up result handlers
                 if status != "okay":
                     with self.result_handlers_lock:
-                        self.result_handlers.pop(seq_num)
+                        self.result_handlers.pop(seq_num, None)
                     with self.list_result_handlers_lock:
-                        self.list_result_handlers.pop(seq_num)
+                        self.list_result_handlers.pop(seq_num, None)
 
                 handler(response)
 
@@ -142,7 +142,7 @@ class Client(object):
                 del self.result_handlers[seq_num]
             raise RuntimeError("Failed to set entity: " + result.reason)
         else:
-            return result.getFirstValue("vk")
+            return response.getFirstValue("vk")
 
     def asyncSetEntityFromFile(self, key_file_name, response_handler):
         with open(key_file_name) as f:
@@ -228,7 +228,7 @@ class Client(object):
             while frame.seq_num not in self.synchronous_results:
                 self.synchronous_cond_vars[frame.seq_num].wait()
             result = self.synchronous_results.pop(frame.seq_num)
-            del self.synchronous_cond_vars[seq_num]
+            del self.synchronous_cond_vars[frame.seq_num]
 
         if result.status != "okay":
             raise RuntimeError("Failed to subscribe: " + result.reason)
@@ -294,8 +294,6 @@ class Client(object):
 
         with self.response_handlers_lock:
             self.response_handlers[frame.seq_num] = responseHandler
-        with self.result_handlers_lock:
-            self.result_handlers[frame.seq_num] = result_handler
         with self.synchronous_results_lock:
             self.synchronous_cond_vars[frame.seq_num] = \
                     threading.Condition(self.synchronous_results_lock)
@@ -305,7 +303,7 @@ class Client(object):
             while frame.seq_num not in self.synchronous_results:
                 self.synchronous_cond_vars[frame.seq_num].wait()
             response = self.synchronous_results.pop(frame.seq_num)
-            del self.synchronous_cond_vars[seq_num]
+            del self.synchronous_cond_vars[frame.seq_num]
 
         if response.status != "okay":
             raise RuntimeError("Failed to publish: " + response.reason)

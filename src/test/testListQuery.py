@@ -18,8 +18,7 @@ PERSISTED_DATA = {
 
 class TestListQuery(unittest.TestCase):
     def setUp(self):
-        self.bw_client = Client('localhost', 28589)
-        self.bw_client.connect()
+        self.bw_client = Client()
         self.bw_client.setEntityFromFile(KEY_FILE)
 
     def tearDown(self):

@@ -67,7 +67,7 @@ class Client(object):
                         list_result_handler(child)
 
 
-    def __init__(self, host_name, port):
+    def __init__(self, host_name='localhost', port=28589):
         self.host_name = host_name
         self.port = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -83,8 +83,6 @@ class Client(object):
         self.synchronous_results_lock = threading.Lock()
         self.synchronous_cond_vars = {}
 
-
-    def connect(self):
         self.socket.connect((self.host_name, self.port))
         frame = Frame.readFromSocket(self.socket)
         if frame.command != "helo":

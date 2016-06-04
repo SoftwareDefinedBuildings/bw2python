@@ -46,8 +46,7 @@ class TestListQuery(unittest.TestCase):
     def setUp(self):
         self.counter = 0
         self.semaphore = Semaphore(0)
-        self.bw_client = Client('localhost', 28589)
-        self.bw_client.connect()
+        self.bw_client = Client()
         self.bw_client.asyncSetEntityFromFile(KEY_FILE, self.onSetEntityResponse)
         self.semaphore.acquire()
 

@@ -26,8 +26,7 @@ class TestPubSubscribe(unittest.TestCase):
     def setUp(self):
         self.counter = 0
         self.semaphore = Semaphore(0)
-        self.bw_client = Client('localhost', 28589)
-        self.bw_client.connect()
+        self.bw_client = Client()
         self.bw_client.setEntityFromFile(KEY_FILE)
         self.bw_client.subscribe(URI, self.onMessage, auto_chain=True, expiry_delta=3600000)
 

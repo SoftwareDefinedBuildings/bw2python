@@ -39,6 +39,8 @@ class PayloadObject(object):
 
         self.content = content
 
+FRAME_HEADER_LEN = 27
+
 class Frame(object):
     def __init__(self, command, seq_num):
         self.command = command
@@ -95,69 +97,83 @@ class Frame(object):
 
     @classmethod
     def readFromSocket(cls, socket):
-        with contextlib.closing(socket.makefile()) as f:
-            frame_header = f.readline()
-            header_items = frame_header.split(' ')
-            if len(header_items) != 3:
-                raise ValueError("Frame header must contain 3 fields")
+        frame_header = socket.recv(FRAME_HEADER_LEN)
+        header_items = frame_header.split(' ')
+        if len(header_items) != 3:
+            raise ValueError("Frame header must contain 3 fields")
 
-            command = header_items[0]
-            frame_length = int(header_items[1])
-            if frame_length < 0:
-                raise ValueError("Negative frame length")
-            seq_no = int(header_items[2])
-            frame = cls(command, seq_no)
+        command = header_items[0]
+        frame_length = int(header_items[1])
+        if frame_length < 0:
+            raise ValueError("Negative frame length")
+        seq_no = int(header_items[2])
+        frame = cls(command, seq_no)
 
-            current_line = f.readline().strip()
-            while current_line != 'end':
-                fields = current_line.split(' ')
-                if len(fields) != 3:
-                    raise ValueError("Invalid item header: " + current_line)
+        buff = socket.recv(frame_length)
+        next_line_break = buff.find('\n')
+        if next_line_break == -1:
+            raise ValueError("Invalid Frame: No newline found")
+        current_line = buff[:next_line_break]
+        buff = buff[next_line_break+1:]
 
-                if fields[0] == "kv":
-                    key = fields[1]
-                    value_len = int(fields[2])
+        while current_line != 'end':
+            fields = current_line.split(' ')
+            if len(fields) != 3:
+                raise ValueError("Invalid item header: " + current_line)
 
-                    value = f.read(value_len)
-                    frame.addKVPair(key, value)
-                    f.read(1) # Strip trailing \n
+            if fields[0] == "kv":
+                key = fields[1]
+                value_len = int(fields[2])
+                value = buff[:value_len]
+                frame.addKVPair(key, value)
 
-                elif fields[0] == "ro":
-                    ro_num = int(fields[1])
-                    body_len = int(fields[2])
-                    body = f.read(body_len)
-                    ro = RoutingObject(ro_num, value)
-                    frame.addRoutingObject(ro)
-                    f.read(1) # Strip trailing \n
+                # Need +1 to strip trailing \n
+                buff = buff[value_len+1:]
 
-                elif fields[0] == "po":
-                    body_len = int(fields[2])
-                    body = f.read(body_len)
+            elif fields[0] == "ro":
+                ro_num = int(fields[1])
+                body_len = int(fields[2])
+                body = buff[:body_len]
+                ro = RoutingObject(ro_num, body)
+                frame.addRoutingObject(ro)
 
-                    po_type = fields[1]
-                    if ':' not in po_type:
-                        raise ValueError("Inavlid payload object type: " + po_type)
-                    if po_type.startswith(':'):
-                        po_type_num = int(po_type[1:])
-                        po_type_dotted = None
-                    elif po_type.endswith(':'):
-                        po_type_dotted = tuple([int(x) for x in po_type[:-1].split('.')])
-                        po_type_num = None
-                    else:
-                        type_tokens = po_type.split(':')
-                        if len(type_tokens) != 2:
-                            raise ValueError("Invalid payload object type: " + po_type)
-                        po_type_dotted = tuple([int(x) for x in type_tokens[0].split('.')])
-                        po_type_num = int(type_tokens[1])
+                # Need +1 to strip trailing \n
+                buff = buff[body_len+1:]
 
-                    po = PayloadObject(po_type_dotted, po_type_num, body)
-                    frame.addPayloadObject(po)
-                    f.read(1) # Strip trailing \n
+            elif fields[0] == "po":
+                body_len = int(fields[2])
+                body = buff[:body_len]
+                # Need +1 to strip trailing \n
+                buff = buff[body_len+1:]
 
+                po_type = fields[1]
+                if ':' not in po_type:
+                    raise ValueError("Inavlid payload object type: " + po_type)
+                if po_type.startswith(':'):
+                    po_type_num = int(po_type[1:])
+                    po_type_dotted = None
+                elif po_type.endswith(':'):
+                    po_type_dotted = tuple([int(x) for x in po_type[:-1].split('.')])
+                    po_type_num = None
                 else:
-                    raise ValueError("Invalid item header: " + current_line)
+                    type_tokens = po_type.split(':')
+                    if len(type_tokens) != 2:
+                        raise ValueError("Invalid payload object type: " + po_type)
+                    po_type_dotted = tuple([int(x) for x in type_tokens[0].split('.')])
+                    po_type_num = int(type_tokens[1])
 
-                current_line = f.readline().strip()
+                po = PayloadObject(po_type_dotted, po_type_num, body)
+                frame.addPayloadObject(po)
+
+            else:
+                raise ValueError("Invalid item header: " + current_line)
+
+            next_line_break = buff.find('\n')
+            if next_line_break == -1:
+                raise ValueError("Invalid Frame: No newline found")
+            current_line = buff[:next_line_break]
+            buff = buff[next_line_break+1:]
+
         return frame
 
     @staticmethod

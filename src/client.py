@@ -370,14 +370,14 @@ class Client(object):
 
         children = []
         def listResultHandler(child):
-            with synchronous_results_lock:
-                if child is None:
+            if child is None:
+                with self.synchronous_results_lock:
                     self.synchronous_results[frame.seq_num] = children
                     self.synchronous_cond_vars[frame.seq_num].notify()
-                else:
-                    children.append(child)
+            else:
+                children.append(child)
 
-        with self.response_handers_lock:
+        with self.response_handlers_lock:
             self.response_handlers[frame.seq_num] = responseHandler
         with self.list_result_handlers_lock:
             self.list_result_handlers[frame.seq_num] = listResultHandler
@@ -447,10 +447,9 @@ class Client(object):
             self.result_handlers[frame.seq_num] = result_handler
         frame.writeToSocket(self.socket)
 
-    def query(self, uri, result_handler, primary_access_chain=None, expiry=None,
-              expiry_delta=None, elaborate_pac=None, unpack=True, auto_chain=False,
-              routing_objects=None):
-        frame = Client._createQueryFrame(uri, primary_access_chain, exoiry,
+    def query(self, uri, primary_access_chain=None, expiry=None, expiry_delta=None,
+              elaborate_pac=None, unpack=True, auto_chain=False, routing_objects=None):
+        frame = Client._createQueryFrame(uri, primary_access_chain, expiry,
                                          expiry_delta, elaborate_pac, unpack,
                                          auto_chain, routing_objects)
 
@@ -462,19 +461,22 @@ class Client(object):
 
         results = []
         def resultHandler(result):
-            results.append(result)
             finished = result.getFirstValue("finished")
             if finished == "true":
                 with self.synchronous_results_lock:
                     self.synchronous_results[frame.seq_num] = results
                     self.synchronous_cond_vars[frame.seq_num].notify()
+            else:
+                results.append(result)
 
         with self.response_handlers_lock:
             self.response_handlers[frame.seq_num] = responseHandler
         with self.result_handlers_lock:
             self.result_handlers[frame.seq_num] = resultHandler
         with self.synchronous_results_lock:
-            self.synchronous_cond_vars[frame.seq_num] = threading.Condition()
+            self.synchronous_cond_vars[frame.seq_num] = \
+                    threading.Condition(self.synchronous_results_lock)
+        frame.writeToSocket(self.socket)
 
         with self.synchronous_results_lock:
             while frame.seq_num not in self.synchronous_results:

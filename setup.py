@@ -10,4 +10,5 @@ setup(
     url="https://github.com/SoftwareDefinedBuildings/bw2python",
     packages=["bw2python"],
     package_dir={'bw2python': 'src'},
+    install_requires = ['msgpack-python']
 )

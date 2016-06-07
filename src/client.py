@@ -1,4 +1,5 @@
 import datetime
+import msgpack
 import os
 import socket
 import sys
@@ -721,3 +722,169 @@ class Client(object):
             raise RuntimeError(result)
         else:
             return result
+
+
+    def asnycMakeView(self, view, response_handler, view_change_handler=None):
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("mkvw", seq_num)
+
+        view_mp = msgpack.packb(view)
+        frame.addKVPair("msgpack", view_mp)
+
+        # Bit of a hack: Call view_change_handler upon result
+        def resultHandler(result):
+            view_change_handler()
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = response_handler
+        frame.writeToSocket(self.socket)
+
+        if view_change_handler is not None:
+            with self.result_handlers_lock:
+                self.result_handlers[seq_num] = resultHandler
+
+    def makeView(self, view, view_change_handler=None):
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("mkvw", seq_num)
+
+        view_mp = msgpack.packb(view)
+        frame.addKVPair("msgpack", view_mp)
+
+        def responseHandler(response):
+            with self.synchronous_results_lock:
+                self.synchronous_results[seq_num] = response
+                self.synchronous_cond_vars[seq_num].notify()
+
+        # Bit of a hack: Call view_change_handler upon result
+        def resultHandler(result):
+            view_change_handler()
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = responseHandler
+        with self.synchronous_results_lock:
+            self.synchronous_cond_vars[seq_num] = \
+                    threading.Condition(self.synchronous_results_lock)
+        frame.writeToSocket(self.socket)
+
+        if view_change_handler is not None:
+            with self.result_handlers_lock:
+                self.result_handlers[seq_num] = resultHandler
+
+        with self.synchronous_results_lock:
+            while seq_num not in self.synchronous_results:
+                self.synchronous_cond_vars[seq_num].wait()
+            response = self.synchronous_results.pop(seq_num)
+            del self.synchronous_cond_vars[seq_num]
+
+        if response.status != "okay":
+            raise RuntimeError("Failed to make view: " + response.reason)
+        else:
+            return int(response.getFirstValue("id"))
+
+
+    def asyncViewSubscribe(self, interface_name, response_handler, result_handler,
+                           signal=None, slot=None):
+        if signal is None and slot is None:
+            raise ValueError("View subscription must specify a signal or slot")
+
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("vsub", seq_num)
+        frame.addKVPair("interface", interface_name)
+        if signal is not None:
+            frame.addKVPair("signal", signal)
+        else:
+            frame.addKVPair("slot", slot)
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = response_handler
+        with self.result_handlers_lock:
+            self.result_handlers[seq_num] = result_handler
+        frame.writeToSocket(self.socket)
+
+    def viewSubscribe(self, interface_name, result_handler, signal=None, slot=None):
+        if signal is None and slot is None:
+            raise ValueError("View subscription must specify a signal or slot")
+
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("vsub", seq_num)
+        frame.addKVPair("interface", interface_name)
+        if signal is not None:
+            frame.addKVPair("signal", signal)
+        else:
+            frame.addKVPair("slot", slot)
+
+        def responseHandler(response):
+            with self.synchronous_results_lock:
+                self.synchronous_results[seq_num] = response
+                self.synchronous_cond_vars[seq_num].notify()
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = responseHandler
+        with self.result_handlers_lock:
+            self.result_handlers[seq_num] = result_handler
+        with self.synchronous_results_lock:
+            self.synchronous_cond_vars[seq_num] = \
+                    threading.Condition(self.synchronous_results_lock)
+        frame.writeToSocket(self.socket)
+
+        with self.synchronous_results_lock:
+            while not seq_num in self.symchronous_results:
+                self.synchronous_cond_vars[seq_num].wait()
+            response = self.synchronous_results.pop(seq_num)
+            del self.synchronous_cond_vars[seq_num]
+
+        if response.status != "okay":
+            raise RuntimeError("View subscribe failed: " + response.reason)
+
+
+    def asyncViewPublish(self, interface_name, response_handler, payload_objects,
+                         signal=None, slot=None):
+        if signal is None and slot is None:
+            raise ValueError("View publish must specify a signal or slot")
+
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("vpub", seq_num)
+        frame.addKVPair("interface", interface_name)
+        if signal is not None:
+            frame.addKVPair("signal", signal)
+        else:
+            frame.addKVPair("slot", slot)
+        frame.addPayloadObjects(payload_objects)
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = response_handler
+        frame.writeToSocket(self.socket)
+
+    def viewPublish(self, interface_name, payload_objects, signal=None, slot=None):
+        if signal is None and slot is NOne:
+            raise ValueError("View publish must specify a signal or slot")
+
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("vpub", seq_num)
+        frame.addKVPair("interface", interface_name)
+        if signal is not None:
+            frame.addKVPair("signal", signal)
+        else:
+            frame.addKVPair("slot", slot)
+        frame.addPayloadObjects(payload_objects)
+
+        def responseHandler(response):
+            with self.synchronous_results_lock:
+                self.synchronous_results[seq_num] = response
+                self.synchronous_cond_vars[seq_num].notify()
+
+        with self.response_handlers_lock:
+            self.response_handlers[seq_num] = responseHandler
+        with self.synchronous_results_lock:
+            self.synchronous_cond_vars[seq_num] = \
+                    threading.Condition(self.synchronous_results_lock)
+        frame.writeToSocket(self.socket)
+
+        with self.synchronous_results_lock:
+            while not seq_num in self.synchronous_results:
+                self.synchronous_cond_vars[seq_num].wait()
+            result = self.synchronous_results.pop(seq_num)
+            del self.synchronous_cond_vars[seq_num]
+
+        if result.status != "okay":
+            raise RuntimeError("View publish failed: " + response.reason)

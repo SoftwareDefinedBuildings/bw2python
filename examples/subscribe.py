@@ -6,6 +6,7 @@ from bw2python.client import Client
 
 bw_client = Client()
 bw_client.setEntityFromEnviron()
+bw_client.overrideAutoChainTo(True)
 
 def onMessage(bw_message):
     for po in bw_message.payload_objects:

@@ -90,6 +90,8 @@ class Client(object):
             self.close()
             raise RuntimeError("Received invalid Bosswave ACK")
 
+        self.default_auto_chain = None
+
         self.listener_thread = threading.Thread(target=self._readFrame)
         self.listener_thread.daemon = True
         self.listener_thread.start()
@@ -97,6 +99,10 @@ class Client(object):
 
     def close(self):
         self.socket.close()
+
+
+    def overrideAutoChainTo(self, auto_chain):
+        self.default_auto_chain = auto_chain
 
 
     @staticmethod
@@ -197,6 +203,8 @@ class Client(object):
     def asyncSubscribe(self, uri, response_handler, result_handler, primary_access_chain=None,
                        expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
                        auto_chain=False, routing_objects=None):
+        if self.default_auto_chain is not None:
+            auto_chain = self.default_auto_chain
         frame = Client._createSubscribeFrame(uri, primary_access_chain, expiry,
                                              expiry_delta, elaborate_pac, unpack,
                                              auto_chain, routing_objects)
@@ -210,6 +218,8 @@ class Client(object):
     def subscribe(self, uri, result_handler, primary_access_chain=None, expiry=None,
                   expiry_delta=None, elaborate_pac=None, unpack=True,
                   auto_chain=False, routing_objects=None):
+        if self.default_auto_chain is not None:
+            auto_chain = self.default_auto_chain
         frame = Client._createSubscribeFrame(uri, primary_access_chain, expiry,
                                              expiry_delta, elaborate_pac, unpack,
                                              auto_chain, routing_objects)
@@ -276,6 +286,8 @@ class Client(object):
     def asyncPublish(self, uri, response_handler, persist=False, primary_access_chain=None,
                      expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
                      routing_objects=None, payload_objects=None):
+        if self.default_auto_chain is not None:
+            auto_chain = self.default_auto_chain
         frame = Client._createPublishFrame(uri, persist, primary_access_chain, expiry,
                                            expiry_delta, elaborate_pac, auto_chain,
                                            routing_objects, payload_objects)
@@ -287,6 +299,8 @@ class Client(object):
     def publish(self, uri, persist=False, primary_access_chain=None, expiry=None,
                 expiry_delta=None, elaborate_pac=None, auto_chain=False,
                 routing_objects=None, payload_objects=None):
+        if self.default_auto_chain is not None:
+            auto_chain = self.default_auto_chain
         frame = Client._createPublishFrame(uri, persist, primary_access_chain, expiry,
                                            expiry_delta, elaborate_pac, auto_chain,
                                            routing_objects, payload_objects)
@@ -347,6 +361,8 @@ class Client(object):
     def asyncList(self, uri, response_handler, list_result_handler, primary_access_chain=None,
                   expiry=None, expiry_delta=None, elaborate_pac=None, auto_chain=False,
                   routing_objects=None):
+        if self.default_auto_chain is not None:
+            auto_chain = self.default_auto_chain
         frame = Client._createListFrame(uri, primary_access_chain, expiry, expiry_delta,
                                         elaborate_pac, auto_chain, routing_objects)
 
@@ -358,12 +374,14 @@ class Client(object):
 
     def list(self, uri, primary_access_chain=None, expiry=None, expiry_delta=None,
              elaborate_pac=None, auto_chain=False, routing_objects=None):
+        if self.default_auto_chain is not None:
+            auto_chain = self.default_auto_chain
         frame = Client._createListFrame(uri, primary_access_chain, expiry, expiry_delta,
                                         elaborate_pac, auto_chain, routing_objects)
 
         def responseHandler(response):
             if response.status != "okay":
-                with synchronous_results_lock:
+                with self.synchronous_results_lock:
                     self.synchronous_results[frame.seq_num] = response.reason
                     self.synchronous_cond_vars[frame.seq_num].notify()
 
@@ -436,6 +454,8 @@ class Client(object):
     def asyncQuery(self, uri, response_handler, result_handler, primary_access_chain=None,
                    expiry=None, expiry_delta=None, elaborate_pac=None, unpack=True,
                    auto_chain=False, routing_objects=None):
+        if self.default_auto_chain is not None:
+            auto_chain = self.default_auto_chain
         frame = Client._createQueryFrame(uri, primary_access_chain, expiry,
                                          expiry_delta, elaborate_pac, unpack,
                                          auto_chain, routing_objects)
@@ -448,13 +468,15 @@ class Client(object):
 
     def query(self, uri, primary_access_chain=None, expiry=None, expiry_delta=None,
               elaborate_pac=None, unpack=True, auto_chain=False, routing_objects=None):
+        if self.default_auto_chain is not None:
+            auto_chain = self.default_auto_chain
         frame = Client._createQueryFrame(uri, primary_access_chain, expiry,
                                          expiry_delta, elaborate_pac, unpack,
                                          auto_chain, routing_objects)
 
         def responseHandler(response):
             if response.status != "okay":
-                with synchronous_results_lock:
+                with self.synchronous_results_lock:
                     self.synchronous_results[frame.seq_num] = response.reason
                     self.synchronous_cond_vars[frame.seq_num].notify()
 

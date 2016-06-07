@@ -48,6 +48,7 @@ class TestListQuery(unittest.TestCase):
         self.semaphore = Semaphore(0)
         self.bw_client = Client()
         self.bw_client.asyncSetEntityFromFile(KEY_FILE, self.onSetEntityResponse)
+        self.bw_client.overrideAutoChainTo(True)
         self.semaphore.acquire()
 
     def tearDown(self):
@@ -57,15 +58,12 @@ class TestListQuery(unittest.TestCase):
         for planet, probe in PERSISTED_DATA.items():
             po = PayloadObject((64, 0, 0, 0), None, probe)
             uri = BASE_URI + "/persisted/" + planet
-            self.bw_client.asyncPublish(uri, self.assertOkay, payload_objects=(po,),
-                                        persist=True, auto_chain=True)
-        self.bw_client.asyncQuery(BASE_URI + "/persisted/+", self.assertOkay,
-                                  self.onMessage, auto_chain=True)
+            self.bw_client.asyncPublish(uri, self.assertOkay, payload_objects=(po,), persist=True)
+        self.bw_client.asyncQuery(BASE_URI + "/persisted/+", self.assertOkay, self.onMessage)
         self.semaphore.acquire()
 
         self.counter = 0
-        self.bw_client.asyncList(BASE_URI + "/persisted", self.assertOkay,
-                                 self.onListResult, auto_chain=True)
+        self.bw_client.asyncList(BASE_URI + "/persisted", self.assertOkay, self.onListResult)
         self.semaphore.acquire()
 
 if __name__ == "__main__":

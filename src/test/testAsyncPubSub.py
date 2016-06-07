@@ -39,9 +39,9 @@ class TestPubSubscribe(unittest.TestCase):
         self.semaphore = Semaphore(0)
         self.bw_client = Client()
         self.bw_client.asyncSetEntityFromFile(KEY_FILE, self.onSetEntityResponse)
+        self.bw_client.overrideAutoChainTo(True)
         self.semaphore.acquire()
-        self.bw_client.asyncSubscribe(URI, self.onSubscribeResponse, self.onMessage,
-                                 auto_chain=True, expiry_delta=3600000)
+        self.bw_client.asyncSubscribe(URI, self.onSubscribeResponse, self.onMessage)
         self.semaphore.acquire()
 
     def tearDown(self):
@@ -50,8 +50,7 @@ class TestPubSubscribe(unittest.TestCase):
     def testPublishSubscribe(self):
         for msg in MESSAGES:
             po = PayloadObject((64, 0, 0, 0), None, msg)
-            self.bw_client.asyncPublish(URI, self.onPublishResponse, payload_objects=(po,),
-                                   auto_chain=True)
+            self.bw_client.asyncPublish(URI, self.onPublishResponse, payload_objects=(po,))
         self.semaphore.acquire()
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ class Client(object):
     def _readFrame(self):
         while True:
             frame = Frame.readFromSocket(self.socket)
+            finished = frame.getFirstValue("finished")
 
             seq_num = frame.seq_num
             if frame.command == "resp":
@@ -28,7 +29,7 @@ class Client(object):
 
 
                 # If the operation failed, we need to clean up result handlers
-                if status != "okay":
+                if status != "okay" or finished == "true":
                     with self.result_handlers_lock:
                         self.result_handlers.pop(seq_num, None)
                     with self.list_result_handlers_lock:
@@ -37,8 +38,6 @@ class Client(object):
                 handler(response)
 
             elif frame.command == "rslt":
-                finished = frame.getFirstValue("finished")
-
                 with self.result_handlers_lock:
                     message_handler = self.result_handlers.get(seq_num)
                     if message_handler is not None and finished == "true":
@@ -61,11 +60,11 @@ class Client(object):
                                                 frame.payload_objects)
                     message_handler(result)
                 elif list_result_handler is not None:
+                    child = frame.getFirstValue("child")
+                    if child is not None:
+                        list_result_handler(child)
                     if finished == "true":
                         list_result_handler(None)
-                    else:
-                        child = frame.getFirstValue("child")
-                        list_result_handler(child)
 
 
     def __init__(self, host_name='localhost', port=28589):

@@ -109,7 +109,13 @@ class Frame(object):
         seq_no = int(header_items[2])
         frame = cls(command, seq_no)
 
-        buff = socket.recv(frame_length)
+        needed_bytes = frame_length
+        buff = ""
+        while needed_bytes > 0:
+            just_received = socket.recv(needed_bytes)
+            needed_bytes -= len(just_received)
+            buff += just_received
+
         next_line_break = buff.find('\n')
         if next_line_break == -1:
             raise ValueError("Invalid Frame: No newline found")

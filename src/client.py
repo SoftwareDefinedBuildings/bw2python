@@ -67,7 +67,25 @@ class Client(object):
                         list_result_handler(None)
 
 
-    def __init__(self, host_name='localhost', port=28589):
+    def __init__(self, host_name=None, port=None):
+        default_host = "localhost"
+        default_port = 28589
+        if host_name is None and port is None:
+            default_agent = os.getenv('BW2_AGENT')
+            if default_agent is not None:
+                tokens = default_agent.split(':')
+                if len(tokens) != 2:
+                    raise RuntimeError("Invalid BW2_AGENT env var: " + default_agent)
+                default_host = tokens[0]
+                try:
+                    default_port = int(tokens[1])
+                except ValueError as e:
+                    raise RuntimeError("BW2_AGENT env var " + default_agent + " contains invalid port", e)
+        if host_name is None:
+            host_name = default_host
+        if port is None:
+            port = default_port
+
         self.host_name = host_name
         self.port = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

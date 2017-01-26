@@ -166,7 +166,8 @@ class Client(object):
                 del self.result_handlers[seq_num]
             raise RuntimeError("Failed to set entity: " + result.reason)
         else:
-            return response.getFirstValue("vk")
+            self.vk = response.getFirstValue("vk")
+            return self.vk
 
     def asyncSetEntityFromFile(self, key_file_name, response_handler):
         with open(key_file_name) as f:

@@ -133,8 +133,12 @@ class Client(object):
         po = PayloadObject(ENTITY_PO_NUM, None, key)
         frame.addPayloadObject(po)
 
+        def wrappedResponseHandler(response):
+            self.vk = response.getFirstValue("vk")
+            response_handler(response)
+
         with self.response_handlers_lock:
-            self.response_handlers[seq_num] = response_handler
+            self.response_handlers[seq_num] = wrappedResponseHandler
         frame.writeToSocket(self.socket)
 
     def setEntity(self, key):
@@ -166,7 +170,8 @@ class Client(object):
                 del self.result_handlers[seq_num]
             raise RuntimeError("Failed to set entity: " + result.reason)
         else:
-            return response.getFirstValue("vk")
+            self.vk = response.getFirstValue("vk")
+            return self.vk
 
     def asyncSetEntityFromFile(self, key_file_name, response_handler):
         with open(key_file_name) as f:

@@ -174,13 +174,13 @@ class Client(object):
             return self.vk
 
     def asyncSetEntityFromFile(self, key_file_name, response_handler):
-        with open(key_file_name) as f:
+        with open(key_file_name,'rb') as f:
             f.read(1) # Strip leading byte
             key = f.read()
         self.asyncSetEntity(key, response_handler)
 
     def setEntityFromFile(self, key_file_name):
-        with open(key_file_name) as f:
+        with open(key_file_name,'rb') as f:
             f.read(1) # Strip leading byte
             key = f.read()
         return self.setEntity(key)

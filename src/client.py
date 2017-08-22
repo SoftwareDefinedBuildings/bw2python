@@ -1,6 +1,7 @@
 import datetime
 import msgpack
 import os
+import base64
 import socket
 import sys
 import threading

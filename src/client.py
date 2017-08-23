@@ -5,6 +5,7 @@ import base64
 import socket
 import sys
 import threading
+import Queue
 
 from bwtypes import *
 
@@ -59,7 +60,10 @@ class Client(object):
                         result = BosswaveResult(from_, uri, frame.kv_pairs,
                                                 frame.routing_objects,
                                                 frame.payload_objects)
-                    message_handler(result)
+                    # Place message handler and result in message queue.
+                    # This allows callbacks to do bosswave actions (i.e. publish/subscribe)
+                    # because they now take place from another thread.
+                    self.msgq.put((message_handler, result))
                 elif list_result_handler is not None:
                     child = frame.getFirstValue("child")
                     if child is not None:
@@ -67,6 +71,13 @@ class Client(object):
                     if finished == "true":
                         list_result_handler(None)
 
+
+    # thread for executing callbacks
+    def _msgq_handler(self):
+        while True:
+            handler, item = self.msgq.get()
+            handler(item)
+            self.msgq.task_done()
 
     def __init__(self, host_name=None, port=None):
         default_host = "localhost"
@@ -90,6 +101,12 @@ class Client(object):
         self.host_name = host_name
         self.port = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        # setup message queue for handling callbacks
+        self.msgq = Queue.Queue()
+        msgq_worker = threading.Thread(target=self._msgq_handler)
+        msgq_worker.daemon = True
+        msgq_worker.start()
 
         self.response_handlers = {}
         self.response_handlers_lock = threading.Lock()

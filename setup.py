@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="bw2python",
-    version="0.4",
+    version="0.5",
     description="Python bindings for Bosswave 2",
     author="Jack Kolb",
     author_email="jkolb@berkeley.edu",

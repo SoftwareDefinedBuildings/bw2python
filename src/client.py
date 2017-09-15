@@ -287,6 +287,39 @@ class Client(object):
         if result.status != "okay":
             raise RuntimeError("Failed to subscribe: " + result.reason)
 
+        # return handle for unsubscribing
+        return result.getFirstValue('handle')
+
+    @staticmethod
+    def _createUnsubscribeFrame(handle):
+        seq_num = Frame.generateSequenceNumber()
+        frame = Frame("usub", seq_num)
+        frame.addKVPair("handle", handle)
+        return frame
+
+    def unsubscribe(self, handle):
+        frame = Client._createUnsubscribeFrame(handle)
+        def responseHandler(response):
+            with self.synchronous_results_lock:
+                self.synchronous_results[frame.seq_num] = response
+                self.synchronous_cond_vars[frame.seq_num].notify()
+
+        with self.response_handlers_lock:
+            self.response_handlers[frame.seq_num] = responseHandler
+        with self.synchronous_results_lock:
+            self.synchronous_cond_vars[frame.seq_num] = \
+                    threading.Condition(self.synchronous_results_lock)
+        frame.writeToSocket(self.socket)
+
+        with self.synchronous_results_lock:
+            while frame.seq_num not in self.synchronous_results:
+                self.synchronous_cond_vars[frame.seq_num].wait()
+            result = self.synchronous_results.pop(frame.seq_num)
+            del self.synchronous_cond_vars[frame.seq_num]
+
+        if result.status != "okay":
+            raise RuntimeError("Failed to unsubscribe: " + result.reason)
+
 
     @staticmethod
     def _createPublishFrame(uri, persist, primary_access_chain, expiry, expiry_delta,
